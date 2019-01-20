@@ -13,6 +13,7 @@ public class PlayerController : MonoBehaviour {
 	private int ballsReadyCount = 0;
 	private LineRenderer lineRenderer;
 	private Vector2 aim = Vector2.zero;
+	private Vector2 nextShotSecondDirection;
 
 	public bool autoShooter = true;
 	public bool lockAfterShooting = true;
@@ -28,6 +29,7 @@ public class PlayerController : MonoBehaviour {
 		}
 	}
 
+	public bool OngoingMove => this.ongoingMove;
 	public float XOffset => this.xOffset;
 
     private void Start() {
@@ -53,15 +55,16 @@ public class PlayerController : MonoBehaviour {
     }
 
 	private IEnumerator HandleShooting() {
-		foreach (Ball ball in this.balls) {
-			if (ball.Shot)
-				continue;
+		int i = 0;
 
+		foreach (Ball ball in this.balls) {
+			//ball.nextDirection = RenderNextDirection(this.aim, i);
 			ball.ShootTowards(this.aim);
 
 			if (!this.autoShooter)
 				break;
 
+			i++;
 			yield return new WaitForSeconds(this.autoShooterDelay);
 		}
 
@@ -69,10 +72,10 @@ public class PlayerController : MonoBehaviour {
 	}
 
 	private void RenderAim() {
-		Vector3 mouse = Camera.main.ScreenToWorldPoint(Input.mousePosition + new Vector3(0, 0, 47.3f)) - new Vector3(this.xOffset, this.game.baseY, 0);
+		Vector3 mouse = Camera.main.ScreenToWorldPoint(Input.mousePosition + new Vector3(0, 0, -Camera.main.transform.position.z)) - new Vector3(this.xOffset, this.game.baseY, 0);
 
 		float magnitude = mouse.magnitude < this.aimLength ? mouse.magnitude : this.aimLength;
-		float angle = Mathf.Atan(mouse.y / mouse.x) * (180/Mathf.PI); // Convert to degrees
+		float angle = Mathf.Atan(mouse.y / mouse.x) * (180 / Mathf.PI); // Convert to degrees
 		float xAim = Mathf.Cos(angle * (Mathf.PI / 180)) * magnitude;
 		float yAim = Mathf.Sin(angle * (Mathf.PI / 180)) * magnitude;
 
@@ -87,47 +90,48 @@ public class PlayerController : MonoBehaviour {
 		this.lineRenderer.SetPosition(0, new Vector3(xAim + this.xOffset, yAim, 0)); // Top line point
 		this.lineRenderer.SetPosition(1, new Vector3(this.xOffset, 0, 0)); // Bottom line point
 
+		// Draw debug lines
+		RenderNextDirection(this.aim, 0);
+	}
+
+	/// <summary>
+	/// Render first move shoot through controller. For some reason,
+	/// if it is done through the Ball class it will glitch.
+	/// </summary>
+	public Vector2 RenderNextDirection(Vector2 shootingAt, int ballIndex) {
 		// Simulate shooting
 		int lm = 1 << 8;
 		lm = ~lm;
 
-		RaycastHit2D hit = Physics2D.Raycast(this.balls[0].transform.position, new Vector2(xAim, yAim).normalized, Mathf.Infinity, lm);
+		Vector2 hitPoint;
+		Vector2 hitNormal;
+
+		RaycastHit2D hit = Physics2D.Raycast(this.balls[ballIndex].transform.position, shootingAt.normalized, Mathf.Infinity, lm);
 
 		if (hit.collider == null) {
-			Debug.LogError("Something went wrong, no hit found");
-			return;
+			Debug.LogError("Something went wrong, no hit found [PlayerController]");
+			return Vector2.zero;
 		}
 
-		// Find the line from the ball to the shooting direction
-		Vector2 incomingVector = hit.point - new Vector2(this.balls[0].transform.position.x, this.balls[0].transform.position.y);
-
-		// Use the point's normal to calculate the reflection vector.
-		Vector2 reflectVector = Vector2.Reflect(incomingVector, hit.normal);
-
-		// Draw lines to show the incoming "beam" and the reflection.
-		Debug.DrawLine(this.balls[0].transform.position, hit.point, Color.red);
-		Debug.DrawRay(hit.point, reflectVector, Color.green);
-
-		/// SECOND !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-		RaycastHit2D hit2 = Physics2D.Raycast(hit.point, reflectVector.normalized, Mathf.Infinity, lm);
-
-		if (hit2.collider == null) {
-			Debug.LogError("Something went wrong, no hit found [2]");
-			return;
-		}
+		hitPoint = hit.point;
+		hitNormal = hit.normal;
 
 		// Find the line from the ball to the shooting direction
-		Vector2 incomingVector2 = hit2.point - reflectVector.normalized - hit.point;
+		Vector2 incomingVector = hitPoint - new Vector2(this.balls[ballIndex].transform.position.x, this.balls[ballIndex].transform.position.y);
 
 		// Use the point's normal to calculate the reflection vector.
-		Vector2 reflectVector2 = Vector2.Reflect(incomingVector2, hit2.normal);
+		Vector2 reflectVector = Vector2.Reflect(incomingVector, hitNormal);
 
 		// Draw lines to show the incoming "beam" and the reflection.
-		Debug.DrawLine(hit.point, hit2.point, Color.yellow);
-		Debug.DrawRay(hit2.point, reflectVector2, Color.blue);
+		Debug.DrawLine(this.balls[ballIndex].transform.position, hitPoint, Color.red);
+		Debug.DrawRay(hitPoint, reflectVector, Color.green);
+
+		//Debug.Log($"Hitpoint: {hitPoint.ToString()} | Reflect: {reflectVector.ToString()} | Incoming: {incomingVector.ToString()}");
+		return reflectVector;
 	}
 
 	private void ResetMove() {
+		//Debug.Log("Shot ended");
 		this.xOffset = this.xFirstCollision ?? 0;
 		this.xFirstCollision = null;
 		this.ballsReadyCount = 0;
