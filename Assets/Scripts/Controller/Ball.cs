@@ -9,13 +9,16 @@ public class Ball : MonoBehaviour {
 
 	private bool moving;
 	private bool horizontalGlitch;
+	private bool isRetracting = false;
 	private PlayerController controller;
 	private new Rigidbody2D rigidbody;
 	private new CircleCollider2D collider;
 	private Vector2 previousDirection;
 
-	public int collisions = 0;
+	public int moveCollisions = 0;
 	public float xCollision;
+
+	public bool Retracting => this.isRetracting;
 
 	public bool Moving {
 		get {
@@ -46,28 +49,44 @@ public class Ball : MonoBehaviour {
 			this.horizontalGlitch = false;
 			this.ShootTowards(Vector2.down);
 		}
-	}	
+
+		if (this.isRetracting && transform.position != new Vector3(this.controller.XCollision ?? this.controller.XOffset, this.controller.game.baseY, 0)) {
+			transform.position = Vector3.MoveTowards(transform.position, new Vector3(this.controller.XCollision ?? this.controller.XOffset, this.controller.game.baseY, 0), 400f * Time.deltaTime);
+		} else if (this.isRetracting) {
+			this.isRetracting = false;
+			this.collider.enabled = true;
+			EndMove();
+		}
+	}
+
+	private void EndMove() {
+		this.rigidbody.velocity = Vector2.zero;
+		this.rigidbody.angularVelocity = 0;
+		this.moveCollisions = 0;
+		Moving = false;
+
+		this.xCollision = transform.position.x;
+		this.controller.CallShotFinished(this);
+		transform.position = new Vector3(this.controller.XCollision ?? this.controller.XOffset, this.controller.game.baseY, 0);
+	}
 
 	private void OnCollisionEnter2D(Collision2D collision) {
 		if (collision.collider.tag == "BottomBorder" && this.controller.OngoingMove) {
-			this.rigidbody.velocity = Vector2.zero;
-			this.rigidbody.angularVelocity = 0;
-
-			Moving = false;
-			this.collisions = 0;
-			this.xCollision = transform.position.x;
-			this.controller.CallShotFinished(this);
-			transform.position = new Vector3(this.controller.XCollision ?? this.controller.XOffset, this.controller.game.baseY, 0);
+			EndMove();
 			return;
 		}
 
-		if (collision.collider.tag != "Border")
+		// Check if "border" layer
+		if (collision.gameObject.layer != 9)
 			return;
 
 		if (!this.controller.OngoingMove)
 			return;
 
-		this.collisions += 1;
+		if (collision.collider.tag == "Block")
+			this.controller.game.Score = this.controller.game.Score + 1;
+
+		this.moveCollisions += 1;
 		this.nextDirection = NextDirection(this.previousDirection, collision);
 
 		ShootTowards(this.nextDirection);
@@ -86,20 +105,9 @@ public class Ball : MonoBehaviour {
 		this.rigidbody.AddForce(direction.normalized * this.controller.aimStrength);
 	}
 
-	Vector2 NextDirection(Vector2 shootingFrom, Collision2D collision) {
-		int lm = 1 << 8;
-		lm = ~lm;
-
+	public Vector2 NextDirection(Vector2 shootingFrom, Collision2D collision) {
 		Vector2 hitPoint = collision.contacts[0].point; ;
 		Vector2 hitNormal = collision.contacts[0].normal;;
-
-		/*RaycastHit2D hit = Physics2D.Raycast(transform.position, shootingFrom.normalized, Mathf.Infinity, lm);
-
-		if (hit.collider == null) {
-			Debug.LogWarning("Something went wrong, no hit found [PlayerController]");
-			return Vector2.zero;
-		}*/
-
 
 		// Find the line from the ball to the shooting direction
 		Vector2 incomingVector = hitPoint - new Vector2(transform.position.x, transform.position.y);
@@ -113,9 +121,23 @@ public class Ball : MonoBehaviour {
 
 		//Debug.Log($"Reflected magnitude: {reflectVector.magnitude} | Velocity magnitude: {this.rigidbody.velocity.magnitude}");
 
-		if (this.rigidbody.velocity.magnitude <= 0.5f)
+		if (Mathf.Abs(this.rigidbody.velocity.y) <= 0.1f && Mathf.Abs(this.rigidbody.velocity.x) >= 0.5f) {
+			reflectVector = Vector2.down;
+		} else if (this.rigidbody.velocity.magnitude <= 0.5f) {
 			reflectVector = -incomingVector;
+		}
 
 		return reflectVector;
+	}
+
+	public void Retract() {
+		if (this.isRetracting)
+			return;
+
+		this.rigidbody.velocity = Vector2.zero;
+		this.rigidbody.angularVelocity = 0;
+
+		this.collider.enabled = false;
+		this.isRetracting = true;
 	}
 }

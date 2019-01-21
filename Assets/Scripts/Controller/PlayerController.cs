@@ -6,21 +6,24 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour {
 
+	private bool ongoingMove;
 	private float? xFirstCollision = null;
 	private float xOffset = 0;
 	private bool initialised;
-	private bool ongoingMove;
+	private bool isRetracting;
 	private int ballsReadyCount = 0;
 	private LineRenderer lineRenderer;
 	private Vector2 aim = Vector2.zero;
 	private Vector2 nextShotSecondDirection;
 
+	public int moveOxygenCollected = 0;
 	public bool autoShooter = true;
 	public bool lockAfterShooting = true;
 	public float autoShooterDelay = 0.25f;
 	public float aimStrength = 150;
-	public float aimLength = 50f;
+	public float aimLength = 25f;
 	public Game game;
+	public Block[] blocks;
 	public List<Ball> balls;
 
 	public float? XCollision {
@@ -32,8 +35,22 @@ public class PlayerController : MonoBehaviour {
 	public bool OngoingMove => this.ongoingMove;
 	public float XOffset => this.xOffset;
 
+	public bool CanRetract {
+		get {
+			foreach (Ball ball in this.balls) {
+				if (!ball.Retracting && (ball.Moving || ball.moveCollisions > 0))
+					continue;
+				
+				return false;
+			}
+
+			return true;
+		}
+	}
+
     private void Start() {
 	    this.lineRenderer = gameObject.GetComponent<LineRenderer>();
+	    this.blocks = GameObject.FindObjectsOfType<Block>();
     }
 
     private void Update() {
@@ -51,7 +68,14 @@ public class PlayerController : MonoBehaviour {
 	    if (Input.GetMouseButtonDown(0) && !this.ongoingMove) {
 		    this.ongoingMove = true;
 		    StartCoroutine(HandleShooting());
-	    }			
+	    }
+
+	    if (Input.GetMouseButtonDown(1) && !this.isRetracting && CanRetract) {
+		    this.isRetracting = true;
+		    foreach (Ball ball in this.balls) {
+			    ball.Retract();
+		    }
+	    }
     }
 
 	private IEnumerator HandleShooting() {
@@ -74,10 +98,10 @@ public class PlayerController : MonoBehaviour {
 	private void RenderAim() {
 		Vector3 mouse = Camera.main.ScreenToWorldPoint(Input.mousePosition + new Vector3(0, 0, -Camera.main.transform.position.z)) - new Vector3(this.xOffset, this.game.baseY, 0);
 
-		float magnitude = mouse.magnitude < this.aimLength ? mouse.magnitude : this.aimLength;
+		//float magnitude = mouse.magnitude < this.aimLength ? mouse.magnitude : this.aimLength;
 		float angle = Mathf.Atan(mouse.y / mouse.x) * (180 / Mathf.PI); // Convert to degrees
-		float xAim = Mathf.Cos(angle * (Mathf.PI / 180)) * magnitude;
-		float yAim = Mathf.Sin(angle * (Mathf.PI / 180)) * magnitude;
+		float xAim = Mathf.Cos(angle * (Mathf.PI / 180)) * 1;
+		float yAim = Mathf.Sin(angle * (Mathf.PI / 180)) * 1;
 
 		if (angle <= 0 && xAim > 0)
 			xAim *= -1;
@@ -87,8 +111,6 @@ public class PlayerController : MonoBehaviour {
 
 		this.aim = new Vector2(xAim, yAim);
 		//Debug.Log($"Mouse: {mouse.ToString()} Angle: {angle} | x: {xAim} | y: {yAim}");
-		this.lineRenderer.SetPosition(0, new Vector3(xAim + this.xOffset, yAim, 0)); // Top line point
-		this.lineRenderer.SetPosition(1, new Vector3(this.xOffset, 0, 0)); // Bottom line point
 
 		// Draw debug lines
 		RenderNextDirection(this.aim, 0);
@@ -100,7 +122,7 @@ public class PlayerController : MonoBehaviour {
 	/// </summary>
 	public Vector2 RenderNextDirection(Vector2 shootingAt, int ballIndex) {
 		// Simulate shooting
-		int lm = 1 << 8;
+		int lm = 1 << 8 | 1 << 0;
 		lm = ~lm;
 
 		Vector2 hitPoint;
@@ -122,11 +144,18 @@ public class PlayerController : MonoBehaviour {
 		// Use the point's normal to calculate the reflection vector.
 		Vector2 reflectVector = Vector2.Reflect(incomingVector, hitNormal);
 
-		// Draw lines to show the incoming "beam" and the reflection.
+		// Draw debug lines
 		Debug.DrawLine(this.balls[ballIndex].transform.position, hitPoint, Color.red);
 		Debug.DrawRay(hitPoint, reflectVector, Color.green);
 
-		//Debug.Log($"Hitpoint: {hitPoint.ToString()} | Reflect: {reflectVector.ToString()} | Incoming: {incomingVector.ToString()}");
+		//Debug.Log($"Hitpoint: {hitPoint.ToString()} | Position: {transform.position} | From: {shootingAt} | Reflect: {reflectVector.ToString()} | Incoming: {incomingVector.ToString()}");
+
+		// Draw game lines
+		Vector2 reflectionLine = -(hit.point - reflectVector).normalized * this.aimLength;
+		this.lineRenderer.SetPosition(0, new Vector3(reflectionLine.x, reflectionLine.y, 0)); // Top line point
+		this.lineRenderer.SetPosition(1, new Vector3(incomingVector.x, incomingVector.y, 0)); // Middle line point
+		this.lineRenderer.SetPosition(2, new Vector3(this.xOffset, 0, 0)); // Bottom line point
+																		   //Debug.Log($"Hitpoint: {hitPoint.ToString()} | Reflect: {reflectVector.ToString()} | Incoming: {incomingVector.ToString()}");
 		return reflectVector;
 	}
 
@@ -136,6 +165,20 @@ public class PlayerController : MonoBehaviour {
 		this.xFirstCollision = null;
 		this.ballsReadyCount = 0;
 		this.ongoingMove = false;
+		this.isRetracting = false;
+
+		foreach (Block block in this.blocks) {
+			if (block == null)
+				continue;
+
+			if (this.moveOxygenCollected == 0) {
+				block.StepDown();
+			} else {
+				block.StepUp(this.moveOxygenCollected);
+			}
+		}
+
+		this.moveOxygenCollected = 0;
 	}
 
 	public void Initialise(Game game, int startingBalls) {
