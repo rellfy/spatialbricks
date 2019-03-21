@@ -1,2 +1,2 @@
-# breather
+# spatialbricks
 Yet another brick game
